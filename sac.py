@@ -7,6 +7,9 @@ import torch.nn.functional as F
 from utils.replay_buffer import ReplayBuffer
 from utils.actor import Actor
 from utils.critic import Critic
+from utils.wandb_server import WandbServer
+from datetime import datetime
+import wandb
 import ray 
 import logging
 import gym
@@ -18,6 +21,7 @@ class SAC:
         # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = torch.device("cpu")
         self.env = env
+        self.wandb_server=WandbServer(project_name='SAC',name='vanila_sac_'+datetime.now().strftime("%Y_%m_%d_%H_%M_%S") )
         # Hyperparameters
         self.gamma = gamma
         self.tau = tau
@@ -28,7 +32,6 @@ class SAC:
             self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
             self.alpha = self.log_alpha.exp().item()
             self.a_optimizer = Adam([self.log_alpha], lr=qlr)
-
         action_dim = env.action_space.shape[0]  
         state_dim  = env.observation_space.shape[0]
         self.batch_size = batch_size
@@ -266,14 +269,16 @@ class SAC:
             # logs
             print(f"Epoch: {epoch+1}/{self.num_epochs}")
             print(f"Rollout reward: {full_episode_reward/nb_episode}")
+            wandb.log({'reward': full_episode_reward/nb_episode})
             if full_episode_reward/nb_episode > 500:
                 break
-        self.eval()
+        for k in range(2):
+            self.eval()
     
     def eval(self):
         s,d=self.env.reset(),False
-        r=0
-        while not d:
+        r,t=0,0
+        while not d and t<500:
             s_t=torch.FloatTensor(s).unsqueeze(0).to(self.device)
             with torch.no_grad():
                 _,_,a=self.actor.get_action(s_t)
@@ -281,6 +286,7 @@ class SAC:
             ap = a if self.env.action_space.shape[0] > 1 else np.array([a])
             s,r,d,_=self.env.step(ap)
             self.env.render()
+            t+=1
         self.env.close()
 
 if __name__=="__main__":
